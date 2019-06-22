@@ -28,14 +28,13 @@ def davies_bouldin_score(X, clusters, _fn):
     IEEE Transactions on Pattern Analysis and Machine Intelligence.
     PAMI-1 (2): 224-227
     """
-    R = 0.0
-    count = 0
+    D = 0.0
 
     for mi, ci in clusters.items():
+        maxRij = -float('inf')
+
         for mj, cj in clusters.items():
             if mi != mj:
-                count += 1
-
                 avgDistI = 0.0
                 for i in ci:
                     avgDistI += _fn(X[i], X[mi])
@@ -46,12 +45,16 @@ def davies_bouldin_score(X, clusters, _fn):
                     avgDistJ += _fn(X[j], X[mj])
                 avgDistJ /= len(cj)
 
-                R += (avgDistI + avgDistJ) / _fn(X[mi], X[mj])
+                Rij = (avgDistI + avgDistJ) / _fn(X[mi], X[mj])
+                if Rij > maxRij:
+                    maxRij = Rij
 
-    return R / count
+        D += maxRij
+
+    return D / len(clusters)
 
 
-def clara(_df, _k, _fn):
+def clara(_df, _k, _fn, runs=5, sample_base=40):
     """The main clara clustering iterative algorithm.
 
     :param _df: Input data frame.
@@ -59,8 +62,6 @@ def clara(_df, _k, _fn):
     :param _fn: The distance function to use.
     :return: The minimized cost, the best medoid choices and the final configuration.
     """
-    runs = 5
-
     size = len(_df)
     niter = 1000
 
@@ -69,7 +70,8 @@ def clara(_df, _k, _fn):
     best_results = {}
 
     for j in range(runs):
-        sampling_idx = random.sample([i for i in range(size)], (40+_k*2))
+        sampling_idx = random.sample(
+            [i for i in range(size)], (sample_base+_k*2))
         sampling_data = []
         indexMapping = {}
 
@@ -92,11 +94,10 @@ def clara(_df, _k, _fn):
     return min_cost, best_choices, best_results
 
 
-def pam_lite(_df, _k, _fn):
+def pam_lite(_df, _k, _fn, runs=5, sample_base=40):
     """A variation of PAM algorithm
     from Olukanmi, P. O., Nelwamondo, F., & Marwala, T. (2019, January). PAM-lite: fast and accurate k-medoids clustering for massive datasets. In 2019 Southern African Universities Power Engineering Conference/Robotics and Mechatronics/Pattern Recognition Association of South Africa (SAUPEC/RobMech/PRASA) (pp. 200-204). IEEE.
     """
-    runs = 5
 
     size = len(_df)
     niter = 1000
@@ -104,7 +105,8 @@ def pam_lite(_df, _k, _fn):
     D = set()  # a set to hold all medoids of different runs
 
     for j in range(runs):
-        sampling_idx = random.sample([i for i in range(size)], (40+_k*2))
+        sampling_idx = random.sample(
+            [i for i in range(size)], (sample_base+_k*2))
         sampling_data = []
         indexMapping = {}
 
