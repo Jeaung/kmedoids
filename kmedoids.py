@@ -3,7 +3,7 @@ import random
 
 class KMedoids():
 
-    def __init__(self, data, cache_size=0):
+    def __init__(self, data, distFn, cache_size=0):
         """
         Parameters
         ----------
@@ -11,10 +11,11 @@ class KMedoids():
         no memory limit is put on the size of cache.
         """
         self._df = data
+        self._fn = distFn
         self.__cache_size = cache_size
         self.__dist_cache = {}
 
-    def davies_bouldin_score(self, clusters, _fn):
+    def davies_bouldin_score(self, clusters):
         """Computes the Davies-Bouldin score.
         The score is defined as the average similarity measure of each cluster with
         its most similar cluster, where similarity is the ratio of within-cluster
@@ -46,16 +47,16 @@ class KMedoids():
                 if mi != mj:
                     avg_dist_i = 0.0
                     for i in ci:
-                        avg_dist_i += _fn(self._df[i], self._df[mi])
+                        avg_dist_i += self._fn(self._df[i], self._df[mi])
                     avg_dist_i /= len(ci)
 
                     avg_dist_j = 0.0
                     for j in cj:
-                        avg_dist_j += _fn(self._df[j], self._df[mj])
+                        avg_dist_j += self._fn(self._df[j], self._df[mj])
                     avg_dist_j /= len(cj)
 
                     rij = (avg_dist_i + avg_dist_j) / \
-                        _fn(self._df[mi], self._df[mj])
+                        self._fn(self._df[mi], self._df[mj])
                     if rij > max_rij:
                         max_rij = rij
 
@@ -63,11 +64,10 @@ class KMedoids():
 
         return D / len(clusters)
 
-    def clara(self, _k, _fn, runs=5, sample_base=40):
+    def clara(self, _k, runs=5, sample_base=40):
         """The main clara clustering iterative algorithm.
 
         :param _k: Number of medoids.
-        :param _fn: The distance function to use.
         :return: The minimized cost, the best medoid choices and the final configuration.
         """
         size = len(self._df)
@@ -87,12 +87,12 @@ class KMedoids():
                 sampling_data.append(self._df[idx])
                 index_mapping[len(sampling_data) - 1] = idx
 
-            _, medoids, _ = self.pam(sampling_data, _k, _fn, niter)
+            _, medoids, _ = self.pam(sampling_data, _k, self._fn, niter)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
 
-            cost, clusters = self.__compute_cost(_fn, medoids)
+            cost, clusters = self.__compute_cost(self._fn, medoids)
 
             if cost <= min_cost:
                 min_cost = cost
@@ -101,7 +101,7 @@ class KMedoids():
 
         return min_cost, best_choices, best_results
 
-    def pam_lite(self, _k, _fn, runs=5, sample_base=40):
+    def pam_lite(self, _k, runs=5, sample_base=40):
         """A variation of PAM algorithm
         from Olukanmi, P. O., Nelwamondo, F., & Marwala, T. (2019, January). PAM-lite: fast and accurate k-medoids clustering for massive datasets. In 2019 Southern African Universities Power Engineering Conference/Robotics and Mechatronics/Pattern Recognition Association of South Africa (SAUPEC/RobMech/PRASA) (pp. 200-204). IEEE.
         """
@@ -121,7 +121,7 @@ class KMedoids():
                 sampling_data.append(self._df[idx])
                 index_mapping[len(sampling_data) - 1] = idx
 
-            _, medoids, _ = self.pam(sampling_data, _k, _fn, niter)
+            _, medoids, _ = self.pam(sampling_data, _k, self._fn, niter)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
@@ -136,19 +136,18 @@ class KMedoids():
             Dd.append(self._df[idx])
             index_mapping[len(Dd) - 1] = idx
 
-        _, medoids, _ = self.pam(Dd, _k, _fn, niter)
+        _, medoids, _ = self.pam(Dd, _k, self._fn, niter)
 
         medoids = [index_mapping[i] for i in medoids]
 
-        cost, clusters = self.__compute_cost(_fn, medoids)
+        cost, clusters = self.__compute_cost(medoids)
 
         return cost, medoids, clusters
 
-    def pam(self, _k, _fn, _niter):
+    def pam(self, _k, _niter):
         """The original k-mediods algorithm.
 
         :param _k: Number of medoids.
-        :param _fn: The distance function to use.
         :param _niter: The number of iterations.
         :return: Cluster label.
 
@@ -162,9 +161,8 @@ class KMedoids():
         """
         print('K-medoids starting')
         # Do some smarter setting of initial cost configuration
-        pc1, medoids = self.__cheat_at_sampling(_k, _fn, 17)
-        prior_cost, clusters = self.__compute_cost(
-            _fn, medoids, use_cache=True)
+        pc1, medoids = self.__cheat_at_sampling(_k, 17)
+        prior_cost, clusters = self.__compute_cost(medoids, use_cache=True)
         # print('init medoids', self._df, medoids, [self._df[i] for i in medoids], prior_cost)
 
         current_cost = prior_cost
@@ -184,7 +182,7 @@ class KMedoids():
                         # print('swap', swap_temp, itemIdx)
 
                         tmp_cost, tmp_clusters = self.__compute_cost(
-                            _fn, medoids, use_cache=True)
+                            medoids, use_cache=True)
 
                         if tmp_cost < current_cost:
                             # print('cost decreases', iter_count, medoids, itemIdx, tmp_clusters, tmp_cost)
@@ -204,10 +202,9 @@ class KMedoids():
 
         return current_cost, best_medoids, best_clusters
 
-    def __compute_cost(self, _fn, _cur_choice, use_cache=False):
+    def __compute_cost(self, _cur_choice, use_cache=False):
         """A function to compute the configuration cost.
 
-        :param _fn: The distance function.
         :param _cur_choice: The current set of medoid choices.
         :return: The total configuration cost, the mediods.
         """
@@ -232,14 +229,14 @@ class KMedoids():
 
                     if cache_key not in self.__dist_cache:
                         # print('cache misses', cache_key)
-                        tmp = _fn(self._df[m], self._df[i])
+                        tmp = self._fn(self._df[m], self._df[i])
                         if self.__cache_size == 0 or len(self.__dist_cache[cache_key]) < self.__cache_size:
                             self.__dist_cache[cache_key] = tmp
                     else:
                         # print('cache hits', cache_key)
                         tmp = self.__dist_cache[cache_key]
                 else:
-                    tmp = _fn(self._df[m], self._df[i])
+                    tmp = self._fn(self._df[m], self._df[i])
 
                 if tmp < min_cost:
                     choice = m
@@ -250,11 +247,10 @@ class KMedoids():
 
         return total_cost, clusters
 
-    def __cheat_at_sampling(self, _k, _fn, _nsamp):
+    def __cheat_at_sampling(self, _k, _nsamp):
         """A function to cheat at sampling for speed ups.
 
         :param _k: The number of mediods.
-        :param _fn: The distance function.
         :param _nsamp: The number of samples.
         :return: The best score, the medoids.
         """
@@ -263,7 +259,7 @@ class KMedoids():
         medoid_holder = []
         for _ in range(_nsamp):
             medoids_sample = random.sample([i for i in range(size)], _k)
-            cost, medoids = self.__compute_cost(_fn, medoids_sample)
+            cost, medoids = self.__compute_cost(medoids_sample)
             score_holder.append(cost)
             medoid_holder.append(medoids)
 
@@ -282,13 +278,13 @@ if __name__ == '__main__':
     for i in range(50):
         data.append(1000 + i)
 
-    k_medoids = KMedoids(data)
+    k_medoids = KMedoids(data, disFn)
 
-    # cost, medoids, clusters = k_medoids.clara(2, disFn)
-    # cost, medoids, clusters = k_medoids.pam_lite(2, disFn)
-    cost, medoids, clusters = k_medoids.pam(2, disFn, 1000)
+    # cost, medoids, clusters = k_medoids.clara(2)
+    # cost, medoids, clusters = k_medoids.pam_lite(2)
+    cost, medoids, clusters = k_medoids.pam(2, 1000)
     print('cost', cost)
     print('medoids', medoids)
     print('clusters', clusters)
     print('davies bouldin index',
-          k_medoids.davies_bouldin_score(clusters, disFn))
+          k_medoids.davies_bouldin_score(clusters))

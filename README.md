@@ -18,13 +18,13 @@ Usage: No constraints on data type. Self-defined distance functions must be prov
     for i in range(50):
         data.append(1000 + i)
 
-    k_medoids = KMedoids(data)
+    k_medoids = KMedoids(data, disFn)
 
-    cost, medoids, clusters = k_medoids.clara(2, disFn)
-    # cost, medoids, clusters = k_medoids.pam_lite(2, disFn)
-    # cost, medoids, clusters = k_medoids.pam(2, disFn, 1000)
+    cost, medoids, clusters = k_medoids.clara(2)
+    # cost, medoids, clusters = k_medoids.pam_lite(2)
+    # cost, medoids, clusters = k_medoids.pam(2, 1000)
     print('cost', cost)
     print('medoids', medoids)
     print('clusters', clusters)
-    print('davies bouldin index', k_medoids.davies_bouldin_score(clusters, disFn))
+    print('davies bouldin index', k_medoids.davies_bouldin_score(clusters))
 ```
