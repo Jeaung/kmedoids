@@ -87,12 +87,14 @@ class KMedoids():
                 sampling_data.append(self._df[idx])
                 index_mapping[len(sampling_data) - 1] = idx
 
-            _, medoids, _ = self.pam(sampling_data, _k, self._fn, niter)
+            kmedoids = KMedoids(sampling_data, self._fn)
+
+            _, medoids, _ = kmedoids.pam(_k, niter)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
 
-            cost, clusters = self.__compute_cost(self._fn, medoids)
+            cost, clusters = self.__compute_cost(medoids)
 
             if cost <= min_cost:
                 min_cost = cost
@@ -121,7 +123,9 @@ class KMedoids():
                 sampling_data.append(self._df[idx])
                 index_mapping[len(sampling_data) - 1] = idx
 
-            _, medoids, _ = self.pam(sampling_data, _k, self._fn, niter)
+            kmedoids = KMedoids(sampling_data, self._fn)
+
+            _, medoids, _ = kmedoids.pam(_k, niter)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
@@ -135,8 +139,10 @@ class KMedoids():
         for idx in D:
             Dd.append(self._df[idx])
             index_mapping[len(Dd) - 1] = idx
+        
+        kmedoids = KMedoids(Dd, self._fn)
 
-        _, medoids, _ = self.pam(Dd, _k, self._fn, niter)
+        _, medoids, _ = kmedoids.pam(_k, niter)
 
         medoids = [index_mapping[i] for i in medoids]
 
@@ -281,8 +287,8 @@ if __name__ == '__main__':
     k_medoids = KMedoids(data, disFn)
 
     # cost, medoids, clusters = k_medoids.clara(2)
-    # cost, medoids, clusters = k_medoids.pam_lite(2)
-    cost, medoids, clusters = k_medoids.pam(2, 1000)
+    cost, medoids, clusters = k_medoids.pam_lite(2)
+    # cost, medoids, clusters = k_medoids.pam(2, 1000)
     print('cost', cost)
     print('medoids', medoids)
     print('clusters', clusters)
