@@ -3,7 +3,7 @@ import random
 
 class KMedoids():
 
-    def __init__(self, data, distFn, cache_size=0):
+    def __init__(self, data, distFn, use_cache=True, cache_size=0):
         """
         Parameters
         ----------
@@ -12,6 +12,7 @@ class KMedoids():
         """
         self._df = data
         self._fn = distFn
+        self.__use_cache = use_cache
         self.__cache_size = cache_size
         self.__dist_cache = {}
 
@@ -168,7 +169,7 @@ class KMedoids():
         print('K-medoids starting')
         # Do some smarter setting of initial cost configuration
         pc1, medoids = self.__cheat_at_sampling(_k, 17)
-        prior_cost, clusters = self.__compute_cost(medoids, use_cache=True)
+        prior_cost, clusters = self.__compute_cost(medoids)
         # print('init medoids', self._df, medoids, [self._df[i] for i in medoids], prior_cost)
 
         current_cost = prior_cost
@@ -188,7 +189,7 @@ class KMedoids():
                         # print('swap', swap_temp, itemIdx)
 
                         tmp_cost, tmp_clusters = self.__compute_cost(
-                            medoids, use_cache=True)
+                            medoids)
 
                         if tmp_cost < current_cost:
                             # print('cost decreases', iter_count, medoids, itemIdx, tmp_clusters, tmp_cost)
@@ -208,7 +209,7 @@ class KMedoids():
 
         return current_cost, best_medoids, best_clusters
 
-    def __compute_cost(self, _cur_choice, use_cache=False):
+    def __compute_cost(self, _cur_choice):
         """A function to compute the configuration cost.
 
         :param _cur_choice: The current set of medoid choices.
@@ -227,7 +228,7 @@ class KMedoids():
             for m in clusters:
                 if m == i:
                     tmp = 0
-                elif use_cache:
+                elif self.__use_cache:
                     if m < i:
                         cache_key = (m, i)
                     else:
