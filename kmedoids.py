@@ -3,61 +3,72 @@ import random
 
 class KMedoids():
 
-    def __init__(self, data, distFn, use_cache=True, cache_size=0):
-        """
-        Parameters
-        ----------
-        cache_size: the size of distance cache, only values >= 0 are accepted. Default value is 0 which means
-        no memory limit is put on the size of cache.
-        """
-        self._df = data
-        self._fn = distFn
-        self.__use_cache = use_cache
-        self.__cache_size = cache_size
-        self.__dist_cache = {}
+    def __init__(self, data, dist_fn, dist_file=''):
+        self.__data = data
+        self.__dist_fn = dist_fn
+        self.__dist_cache = []
+
+        for i in range(len(data)):
+            self.__dist_cache.append([None] * (len(data) - i))
+
+        count = 0
+        if dist_file != '':
+            with open(dist_file, 'r') as f:
+                lines = f.readlines(1024000)
+
+                while len(lines) != 0:
+                    count += len(lines)
+                    for line in lines:
+                        parts = line[:-1].split(' ')
+
+                        x = int(parts[0])
+                        y = int(parts[1]) - x
+
+                        self.__dist_cache[x][y] = float(parts[2])
+
+                    del lines
+
+                    lines = f.readlines(1024000)
+
+            print('cache_size', len(self.__dist_cache))
+
+    def __get_dist(self, i, j):
+        if i == j:
+            return 0
+        else:
+            if i < j:
+                x, y = i, j - i
+            else:
+                x, y = j, i - j
+
+            if self.__dist_cache[x][y] != None:
+                return self.__dist_cache[x][y]
+            else:
+                dist = self.__dist_fn(self.__data[i], self.__data[j])
+                # print('cachekey', (x, y), 'does not exist', dist)
+                self.__dist_cache[x][y] = dist
+                return dist
 
     def davies_bouldin_score(self, clusters):
-        """Computes the Davies-Bouldin score.
-        The score is defined as the average similarity measure of each cluster with
-        its most similar cluster, where similarity is the ratio of within-cluster
-        distances to between-cluster distances. Thus, clusters which are farther
-        apart and less dispersed will result in a better score.
-        The minimum score is zero, with lower values indicating better clustering.
-        Read more in the :ref:`User Guide <davies-bouldin_index>`.
-        Parameters
-        ----------
-        clusters : dictionary
-        Returns
-        -------
-        score: float
-            The resulting Davies-Bouldin score.
-        References
-        ----------
-        .. [1] Davies, David L.; Bouldin, Donald W. (1979).
-        `"A Cluster Separation Measure"
-        <https://ieeexplore.ieee.org/document/4766909>`__.
-        IEEE Transactions on Pattern Analysis and Machine Intelligence.
-        PAMI-1 (2): 224-227
-        """
         D = 0.0
 
         for mi, ci in clusters.items():
             max_rij = -float('inf')
 
+            avg_dist_i = 0.0
+            for i in ci:
+                avg_dist_i += self.__get_dist(i, mi)
+            avg_dist_i /= len(ci)
+
             for mj, cj in clusters.items():
                 if mi != mj:
-                    avg_dist_i = 0.0
-                    for i in ci:
-                        avg_dist_i += self._fn(self._df[i], self._df[mi])
-                    avg_dist_i /= len(ci)
-
                     avg_dist_j = 0.0
                     for j in cj:
-                        avg_dist_j += self._fn(self._df[j], self._df[mj])
+                        avg_dist_j += self.__get_dist(j, mj)
                     avg_dist_j /= len(cj)
 
                     rij = (avg_dist_i + avg_dist_j) / \
-                        self._fn(self._df[mi], self._df[mj])
+                        self.__get_dist(mi, mj)
                     if rij > max_rij:
                         max_rij = rij
 
@@ -65,68 +76,71 @@ class KMedoids():
 
         return D / len(clusters)
 
-    def clara(self, _k, runs=5, sample_base=40):
+    def clara(self, k, runs=5, sample_base=40):
         """The main clara clustering iterative algorithm.
 
-        :param _k: Number of medoids.
+        :param k: Number of medoids.
         :return: The minimized cost, the best medoid choices and the final configuration.
         """
-        size = len(self._df)
-        niter = 1000
+        size = len(self.__data)
 
         min_cost = float('inf')
         best_choices = []
         best_results = {}
 
         for j in range(runs):
+
             sampling_idx = random.sample(
-                [i for i in range(size)], (sample_base+_k*2))
+                [i for i in range(size)], (sample_base+k*2 - k))
+            sampling_idx.extend(best_choices)
+
+            # print('best choices and sample', best_choices, sampling_idx)
+
             sampling_data = []
             index_mapping = {}
 
             for idx in sampling_idx:
-                sampling_data.append(self._df[idx])
+                sampling_data.append(self.__data[idx])
                 index_mapping[len(sampling_data) - 1] = idx
 
-            kmedoids = KMedoids(sampling_data, self._fn)
+            kmedoids = KMedoids(sampling_data, self.__dist_fn)
 
-            _, medoids, _ = kmedoids.pam(_k, niter)
+            medoids, _ = kmedoids.pam(k)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
 
-            cost, clusters = self.__compute_cost(medoids)
+            cost, clusters = self.__form_clusters(medoids)
 
             if cost <= min_cost:
                 min_cost = cost
                 best_choices = list(medoids)
                 best_results = dict(clusters)
 
-        return min_cost, best_choices, best_results
+        return best_choices, best_results
 
-    def pam_lite(self, _k, runs=5, sample_base=40):
+    def pam_lite(self, k, runs=5, sample_base=40):
         """A variation of PAM algorithm
         from Olukanmi, P. O., Nelwamondo, F., & Marwala, T. (2019, January). PAM-lite: fast and accurate k-medoids clustering for massive datasets. In 2019 Southern African Universities Power Engineering Conference/Robotics and Mechatronics/Pattern Recognition Association of South Africa (SAUPEC/RobMech/PRASA) (pp. 200-204). IEEE.
         """
 
-        size = len(self._df)
-        niter = 1000
+        size = len(self.__data)
 
         D = set()  # a set to hold all medoids of different runs
 
         for j in range(runs):
             sampling_idx = random.sample(
-                [i for i in range(size)], (sample_base+_k*2))
+                [i for i in range(size)], (sample_base+k*2))
             sampling_data = []
             index_mapping = {}
 
             for idx in sampling_idx:
-                sampling_data.append(self._df[idx])
+                sampling_data.append(self.__data[idx])
                 index_mapping[len(sampling_data) - 1] = idx
 
-            kmedoids = KMedoids(sampling_data, self._fn)
+            kmedoids = KMedoids(sampling_data, self.__dist_fn)
 
-            _, medoids, _ = kmedoids.pam(_k, niter)
+            medoids, _ = kmedoids.pam(k)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
@@ -138,141 +152,254 @@ class KMedoids():
         Dd = []
         index_mapping = {}
         for idx in D:
-            Dd.append(self._df[idx])
+            Dd.append(self.__data[idx])
             index_mapping[len(Dd) - 1] = idx
-        
-        kmedoids = KMedoids(Dd, self._fn)
 
-        _, medoids, _ = kmedoids.pam(_k, niter)
+        kmedoids = KMedoids(Dd, self.__dist_fn)
+
+        medoids, _ = kmedoids.pam(k)
 
         medoids = [index_mapping[i] for i in medoids]
 
-        cost, clusters = self.__compute_cost(medoids)
+        cost, clusters = self.__form_clusters(medoids)
 
-        return cost, medoids, clusters
+        return medoids, clusters
 
-    def pam(self, _k, _niter):
-        """The original k-mediods algorithm.
+    def pam(self, k):
+        """The original Partitioning Around Medoids algorithm.
 
-        :param _k: Number of medoids.
-        :param _niter: The number of iterations.
-        :return: Cluster label.
-
-        Pseudo-code for the k-mediods algorithm.
-        1. Sample k of the n data points as the medoids.
-        2. Associate each data point to the closest medoid.
-        3. While the cost of the data point space configuration is decreasing.
-            1. For each medoid m and each non-medoid point o:
-                1. Swap m and o, recompute cost.
-                2. If global cost increased, swap back.
+        :param k: Number of medoids.
+        :return: medoids and clusters.
         """
         print('K-medoids starting')
         # Do some smarter setting of initial cost configuration
-        pc1, medoids = self.__cheat_at_sampling(_k, 17)
-        prior_cost, clusters = self.__compute_cost(medoids)
-        # print('init medoids', self._df, medoids, [self._df[i] for i in medoids], prior_cost)
+        medoids = self.__build_phase(k)
 
-        current_cost = prior_cost
-        iter_count = 0
-        best_medoids = medoids
-        best_clusters = clusters
+        while True:
+            min_result = float('inf')
+            swap = ()
 
-        print('Running with {m} iterations'.format(m=_niter))
+            U = [i for i in range(len(self.__data)) if i not in medoids]
 
-        while iter_count < _niter:
-            for idx in range(len(medoids)):
-                for itemIdx in range(len(self._df)):
-                    if itemIdx not in medoids:
-                        swap_temp = medoids[idx]
-                        medoids[idx] = itemIdx
+            for i in range(len(medoids)):
+                for h in U:
+                    result = self.__swap_result(medoids[i], h, medoids, U)
+                    # print('processing', self.__data[medoids[i]], self.__data[h], [self.__data[t] for t in medoids], [self.__data[t] for t in U], result)
+                    if result < min_result:
+                        min_result = result
+                        swap = (i, h)
 
-                        # print('swap', swap_temp, itemIdx)
-
-                        tmp_cost, tmp_clusters = self.__compute_cost(
-                            medoids)
-
-                        if tmp_cost < current_cost:
-                            # print('cost decreases', iter_count, medoids, itemIdx, tmp_clusters, tmp_cost)
-                            best_medoids = list(medoids)
-                            best_clusters = tmp_clusters
-                            current_cost = tmp_cost
-                        else:
-                            medoids[idx] = swap_temp
-
-            iter_count += 1
-
-            if abs(current_cost - prior_cost) < 0.0001:
-                break
+            if min_result < 0:
+                medoids[swap[0]] = swap[1]
+                # print('swap', swap, min_result, self.__data,
+                #       [self.__data[t] for t in medoids])
             else:
-                prior_cost = current_cost
-                # print('best choices', best_choices)
+                break
 
-        return current_cost, best_medoids, best_clusters
+        _, clusters = self.__form_clusters(medoids)
 
-    def __compute_cost(self, _cur_choice):
+        return medoids, clusters
+
+    def clarans(self, k, numlocal, max_neighbour):
+        size = len(self.__data)
+
+        best_medoids = []
+        best_clusters = {}
+        min_cost = float('inf')
+
+        for i in range(numlocal):
+            current_cost = float('inf')
+            current_medoids = random.sample([i for i in range(size)], k)
+            _, clusters = self.__form_clusters(current_medoids)
+
+            # print('run', i, 'current', current_medoid_indices)
+
+            j = 0
+            while j < max_neighbour:
+                replace_index = random.randint(0, k - 1)
+
+                replacement = random.sample(
+                    [i for i in range(size) if i not in current_medoids], 1)[0]
+
+                U = [i for i in range(len(self.__data))
+                     if i not in current_medoids]
+
+                cost = self.__swap_result(
+                    current_medoids[replace_index], replacement, current_medoids, U)
+                if cost < 0:
+                    current_cost = cost
+                    current_medoids[replace_index] = replacement
+                    _, clusters = self.__form_clusters(
+                        current_medoids)
+
+                    j = 0
+                else:
+                    j += 1
+
+            if current_cost < min_cost:
+                min_cost = current_cost
+                best_medoids = current_medoids
+                best_clusters = clusters
+                print('run', i, 'best medoids', best_medoids)
+
+        return best_medoids, best_clusters
+
+    def __swap_result(self, i, h, medoids, U):
+        tmp_medoids = [m for m in medoids if m != i]
+
+        tih = 0
+
+        for j in U:
+            if j == h:
+                continue
+
+            djh = self.__get_dist(j, h)
+            dji = self.__get_dist(j, i)
+
+            max_dist = -float('inf')
+            min_dist = float('inf')
+            for m in tmp_medoids:
+                dist = self.__get_dist(j, m)
+                if dist > max_dist:
+                    max_dist = dist
+                if dist < min_dist:
+                    min_dist = dist
+
+            if max_dist < djh and max_dist < dji:
+                cjih = 0
+            elif dji < min_dist:
+                if djh < min_dist:
+                    cjih = djh - dji
+                else:
+                    cjih = min_dist - dji
+            else:
+                cjih = djh - min_dist
+
+            tih += cjih
+
+        # print(tmp_medoids, j, i, h, djh, dji, max_dist, min_dist, cjih)
+
+        return tih
+
+    def __form_clusters(self, _cur_choice):
         """A function to compute the configuration cost.
 
         :param _cur_choice: The current set of medoid choices.
-        :return: The total configuration cost, the mediods.
+        :return: The total configuration cost, the medoids.
         """
-        size = len(self._df)
-        total_cost = 0.0
+        size = len(self.__data)
+        total_distance = 0.0
         clusters = {}
         for idx in _cur_choice:
             clusters[idx] = []
 
         for i in range(size):
             choice = -1
-            min_cost = float('inf')
+            min_dist = float('inf')
 
             for m in clusters:
-                if m == i:
-                    tmp = 0
-                elif self.__use_cache:
-                    if m < i:
-                        cache_key = (m, i)
-                    else:
-                        cache_key = (i, m)
+                tmp = self.__get_dist(m, i)
 
-                    if cache_key not in self.__dist_cache:
-                        # print('cache misses', cache_key)
-                        tmp = self._fn(self._df[m], self._df[i])
-                        if self.__cache_size == 0 or len(self.__dist_cache[cache_key]) < self.__cache_size:
-                            self.__dist_cache[cache_key] = tmp
-                    else:
-                        # print('cache hits', cache_key)
-                        tmp = self.__dist_cache[cache_key]
-                else:
-                    tmp = self._fn(self._df[m], self._df[i])
-
-                if tmp < min_cost:
+                if tmp < min_dist:
                     choice = m
-                    min_cost = tmp
+                    min_dist = tmp
 
             clusters[choice].append(i)
-            total_cost += min_cost
+            total_distance += min_dist
 
-        return total_cost, clusters
+        return total_distance, clusters
 
-    def __cheat_at_sampling(self, _k, _nsamp):
-        """A function to cheat at sampling for speed ups.
+    def __build_phase(self, k):
+        medoids = []
+        min_dist = float('inf')
+        first_medoid = -1
 
-        :param _k: The number of mediods.
-        :param _nsamp: The number of samples.
-        :return: The best score, the medoids.
-        """
-        size = len(self._df)
-        score_holder = []
-        medoid_holder = []
-        for _ in range(_nsamp):
-            medoids_sample = random.sample([i for i in range(size)], _k)
-            cost, medoids = self.__compute_cost(medoids_sample)
-            score_holder.append(cost)
-            medoid_holder.append(medoids)
+        # compute and add first medoid
+        for i in range(len(self.__data)):
+            dist = 0
 
-        idx = score_holder.index(min(score_holder))
-        ms = list(medoid_holder[idx].keys())
-        return score_holder[idx], ms
+            for j in range(len(self.__data)):
+                if i != j:
+                    dist += self.__get_dist(i, j)
+
+            if dist < min_dist:
+                first_medoid = i
+                min_dist = dist
+
+        medoids.append(first_medoid)
+
+        # compute and add remaining medoids
+        for n in range(k - 1):
+            max_gi = -float('inf')
+            candidate = -1
+
+            for i in range(len(self.__data)):
+                if i in medoids:
+                    continue
+
+                gi = 0
+
+                for j in range(len(self.__data)):
+                    Dj = float('inf')
+
+                    if i != j and j not in medoids:
+                        for m in medoids:
+                            dist = self.__get_dist(j, m)
+                            if dist < Dj:
+                                Dj = dist
+
+                        Cji = max(Dj - self.__get_dist(j, i), 0)
+                        gi += Cji
+
+                if gi > max_gi:
+                    max_gi = gi
+                    candidate = i
+
+            medoids.append(candidate)
+
+        return medoids
+
+    def silhouette_scores(self, clusters):
+        result = [None] * len(self.__data)
+        outliers = {}
+
+        for c, members in clusters.items():
+            for i in members:
+                if len(members) == 1:
+                    result[i] = 0
+                    break
+
+                # calculate intra cluster avg distance
+                intra_dist = 0
+                for j in members:
+                    intra_dist += self.__get_dist(i, j)
+                intra_dist /= len(members) - 1
+
+                min_inter_dist = float('inf')
+                closest = -1
+
+                # calculate min inter cluster avg distance
+                for d, points in clusters.items():
+                    if c == d:
+                        continue
+
+                    inter_dist = 0
+                    for p in points:
+                        inter_dist += self.__get_dist(i, p)
+                    inter_dist /= len(points)
+
+                    if inter_dist < min_inter_dist:
+                        min_inter_dist = inter_dist
+                        closest = d
+
+                if min_inter_dist < intra_dist:
+                    outliers[i] = closest
+
+                score = (min_inter_dist - intra_dist) / \
+                    max(min_inter_dist, intra_dist)
+                result[i] = score
+
+        return result, outliers
 
 
 if __name__ == '__main__':
@@ -280,18 +407,25 @@ if __name__ == '__main__':
         return abs(a - b)
 
     data = []
-    for i in range(50):
-        data.append(1 + i)
-    for i in range(50):
+    for i in range(49):
+        data.append(0 + i)
+    for i in range(49):
         data.append(1000 + i)
+
+    random.shuffle(data)
+
+    print(data)
 
     k_medoids = KMedoids(data, disFn)
 
-    # cost, medoids, clusters = k_medoids.clara(2)
-    cost, medoids, clusters = k_medoids.pam_lite(2)
-    # cost, medoids, clusters = k_medoids.pam(2, 1000)
-    print('cost', cost)
-    print('medoids', medoids)
-    print('clusters', clusters)
-    print('davies bouldin index',
-          k_medoids.davies_bouldin_score(clusters))
+    # medoids, clusters = k_medoids.clara(2)
+    # medoids, clusters = k_medoids.pam_lite(2)
+    medoids, clusters = k_medoids.pam(2)
+    # medoids, clusters = k_medoids.clarans(2, 20, 80)
+
+    print('medoids', medoids, [data[i] for i in medoids])
+    # print('clusters', clusters)
+    for k, v in clusters.items():
+        print('cluster', data[k], [data[i] for i in v])
+    # print('davies bouldin index',
+    #       k_medoids.davies_bouldin_score(clusters))
