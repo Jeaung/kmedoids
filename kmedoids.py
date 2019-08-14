@@ -91,8 +91,7 @@ class KMedoids():
         for j in range(runs):
 
             sampling_idx = random.sample(
-                [i for i in range(size)], (sample_base+k*2 - k))
-            sampling_idx.extend(best_choices)
+                [i for i in range(size)], (sample_base+k*2))
 
             # print('best choices and sample', best_choices, sampling_idx)
 
@@ -105,7 +104,7 @@ class KMedoids():
 
             kmedoids = KMedoids(sampling_data, self.__dist_fn)
 
-            medoids, _ = kmedoids.pam(k)
+            _, medoids, _ = kmedoids.pam(k)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
@@ -140,7 +139,7 @@ class KMedoids():
 
             kmedoids = KMedoids(sampling_data, self.__dist_fn)
 
-            medoids, _ = kmedoids.pam(k)
+            _, medoids, _ = kmedoids.pam(k)
 
             # map from sample index to original data set index
             medoids = [index_mapping[i] for i in medoids]
@@ -157,7 +156,7 @@ class KMedoids():
 
         kmedoids = KMedoids(Dd, self.__dist_fn)
 
-        medoids, _ = kmedoids.pam(k)
+        _, medoids, _ = kmedoids.pam(k)
 
         medoids = [index_mapping[i] for i in medoids]
 
@@ -165,15 +164,19 @@ class KMedoids():
 
         return medoids, clusters
 
-    def pam(self, k):
+    def pam(self, k, init_medoids=[]):
         """The original Partitioning Around Medoids algorithm.
 
         :param k: Number of medoids.
         :return: medoids and clusters.
         """
-        print('K-medoids starting')
+        # print('K-medoids starting')
         # Do some smarter setting of initial cost configuration
-        medoids = self.__build_phase(k)
+        build_medoids = self.__build_phase(k, init_medoids)
+
+        medoids = list(build_medoids)
+
+        print('build phase finished', medoids)
 
         while True:
             min_result = float('inf')
@@ -183,6 +186,7 @@ class KMedoids():
 
             for i in range(len(medoids)):
                 for h in U:
+                    # print('pam swap', i, h)
                     result = self.__swap_result(medoids[i], h, medoids, U)
                     # print('processing', self.__data[medoids[i]], self.__data[h], [self.__data[t] for t in medoids], [self.__data[t] for t in U], result)
                     if result < min_result:
@@ -191,46 +195,40 @@ class KMedoids():
 
             if min_result < 0:
                 medoids[swap[0]] = swap[1]
-                # print('swap', swap, min_result, self.__data,
-                #       [self.__data[t] for t in medoids])
+                # print('swap', swap, min_result, medoids)
             else:
                 break
 
         _, clusters = self.__form_clusters(medoids)
 
-        return medoids, clusters
+        return build_medoids, medoids, clusters
 
     def clarans(self, k, numlocal, max_neighbour):
         size = len(self.__data)
 
-        best_medoids = []
-        best_clusters = {}
+        current_cost = float('inf')
+        current_medoids = random.sample([i for i in range(size)], k)
+
+        best_medoids = current_medoids
         min_cost = float('inf')
 
         for i in range(numlocal):
-            current_cost = float('inf')
-            current_medoids = random.sample([i for i in range(size)], k)
-            _, clusters = self.__form_clusters(current_medoids)
-
-            # print('run', i, 'current', current_medoid_indices)
+            # print('run', i, 'current', current_medoids)
 
             j = 0
             while j < max_neighbour:
                 replace_index = random.randint(0, k - 1)
 
-                replacement = random.sample(
-                    [i for i in range(size) if i not in current_medoids], 1)[0]
-
                 U = [i for i in range(len(self.__data))
                      if i not in current_medoids]
+
+                replacement = random.sample(U, 1)[0]
 
                 cost = self.__swap_result(
                     current_medoids[replace_index], replacement, current_medoids, U)
                 if cost < 0:
                     current_cost = cost
                     current_medoids[replace_index] = replacement
-                    _, clusters = self.__form_clusters(
-                        current_medoids)
 
                     j = 0
                 else:
@@ -239,13 +237,18 @@ class KMedoids():
             if current_cost < min_cost:
                 min_cost = current_cost
                 best_medoids = current_medoids
-                best_clusters = clusters
                 print('run', i, 'best medoids', best_medoids)
 
-        return best_medoids, best_clusters
+            current_cost = float('inf')
+            current_medoids = random.sample([i for i in range(size)], k)
+
+        _, clusters = self.__form_clusters(best_medoids)
+
+        return best_medoids, clusters
 
     def __swap_result(self, i, h, medoids, U):
-        tmp_medoids = [m for m in medoids if m != i]
+        # tmp_medoids = [m for m in medoids if m != i]
+        tmp_medoids = medoids
 
         tih = 0
 
@@ -256,28 +259,38 @@ class KMedoids():
             djh = self.__get_dist(j, h)
             dji = self.__get_dist(j, i)
 
-            max_dist = -float('inf')
-            min_dist = float('inf')
-            for m in tmp_medoids:
-                dist = self.__get_dist(j, m)
-                if dist > max_dist:
-                    max_dist = dist
-                if dist < min_dist:
-                    min_dist = dist
+            min_dist = min(self.__get_dist(
+                j, tmp_medoids[0]), self.__get_dist(j, tmp_medoids[1]))
+            second_dist = max(self.__get_dist(
+                j, tmp_medoids[0]), self.__get_dist(j, tmp_medoids[1]))
 
-            if max_dist < djh and max_dist < dji:
+            for k in range(2, len(tmp_medoids)):
+                dist = self.__get_dist(j, tmp_medoids[k])
+                if dist < min_dist:
+                    second_dist = min_dist
+                    min_dist = dist
+                elif dist < second_dist:
+                    second_dist = dist
+
+            # print('min second dist', min_dist, second_dist)
+
+            # j is more distant from both i and h than from one of the other representative objects
+            if min_dist < djh and min_dist < dji:
                 cjih = 0
-            elif dji < min_dist:
-                if djh < min_dist:
+            # j is not further from i than from any other selected representative object
+            elif abs(dji - min_dist) < 1e-4:
+                # j is closer to h than to the second closest representative object
+                if djh < second_dist:
                     cjih = djh - dji
+                # j is at least as distant from h than from the second closest representative object
                 else:
-                    cjih = min_dist - dji
+                    cjih = second_dist - min_dist
             else:
                 cjih = djh - min_dist
 
             tih += cjih
 
-        # print(tmp_medoids, j, i, h, djh, dji, max_dist, min_dist, cjih)
+        # print('tih', i, h, tih)
 
         return tih
 
@@ -291,45 +304,48 @@ class KMedoids():
         total_distance = 0.0
         clusters = {}
         for idx in _cur_choice:
-            clusters[idx] = []
+            clusters[idx] = [idx]
 
         for i in range(size):
-            choice = -1
-            min_dist = float('inf')
+            if i not in clusters:
+                choice = -1
+                min_dist = float('inf')
 
-            for m in clusters:
-                tmp = self.__get_dist(m, i)
+                for m in clusters:
+                    tmp = self.__get_dist(m, i)
 
-                if tmp < min_dist:
-                    choice = m
-                    min_dist = tmp
+                    if tmp < min_dist:
+                        choice = m
+                        min_dist = tmp
 
-            clusters[choice].append(i)
-            total_distance += min_dist
+                clusters[choice].append(i)
+                total_distance += min_dist
 
         return total_distance, clusters
 
-    def __build_phase(self, k):
-        medoids = []
-        min_dist = float('inf')
-        first_medoid = -1
+    def __build_phase(self, k, init_medoids=[]):
+        medoids = list(init_medoids)
 
-        # compute and add first medoid
-        for i in range(len(self.__data)):
-            dist = 0
+        if len(medoids) == 0:
+            min_dist = float('inf')
+            first_medoid = -1
 
-            for j in range(len(self.__data)):
-                if i != j:
-                    dist += self.__get_dist(i, j)
+            # compute and add first medoid
+            for i in range(len(self.__data)):
+                dist = 0
 
-            if dist < min_dist:
-                first_medoid = i
-                min_dist = dist
+                for j in range(len(self.__data)):
+                    if i != j:
+                        dist += self.__get_dist(i, j)
 
-        medoids.append(first_medoid)
+                if dist < min_dist:
+                    first_medoid = i
+                    min_dist = dist
+
+            medoids.append(first_medoid)
 
         # compute and add remaining medoids
-        for n in range(k - 1):
+        for n in range(k - len(medoids)):
             max_gi = -float('inf')
             candidate = -1
 
@@ -418,9 +434,9 @@ if __name__ == '__main__':
 
     k_medoids = KMedoids(data, disFn)
 
+    _, medoids, clusters = k_medoids.pam(2)
     # medoids, clusters = k_medoids.clara(2)
     # medoids, clusters = k_medoids.pam_lite(2)
-    medoids, clusters = k_medoids.pam(2)
     # medoids, clusters = k_medoids.clarans(2, 20, 80)
 
     print('medoids', medoids, [data[i] for i in medoids])
