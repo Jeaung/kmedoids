@@ -195,7 +195,11 @@ class KMedoids():
 
             if min_result < 0:
                 medoids[swap[0]] = swap[1]
-                # print('swap', swap, min_result, medoids)
+                print('swap', swap, min_result, medoids)
+
+                # prevent possible deadlock
+                if min_result > -0.3:
+                    break
             else:
                 break
 
@@ -278,7 +282,7 @@ class KMedoids():
             if min_dist < djh and min_dist < dji:
                 cjih = 0
             # j is not further from i than from any other selected representative object
-            elif abs(dji - min_dist) < 1e-4:
+            elif abs(dji - min_dist) < 1e-6:
                 # j is closer to h than to the second closest representative object
                 if djh < second_dist:
                     cjih = djh - dji
@@ -377,7 +381,6 @@ class KMedoids():
 
     def silhouette_scores(self, clusters):
         result = [None] * len(self.__data)
-        outliers = {}
 
         for c, members in clusters.items():
             for i in members:
@@ -408,14 +411,11 @@ class KMedoids():
                         min_inter_dist = inter_dist
                         closest = d
 
-                if min_inter_dist < intra_dist:
-                    outliers[i] = closest
-
                 score = (min_inter_dist - intra_dist) / \
                     max(min_inter_dist, intra_dist)
                 result[i] = score
 
-        return result, outliers
+        return result
 
 
 if __name__ == '__main__':
